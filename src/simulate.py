@@ -1,23 +1,330 @@
-"""Simulate remaining World Cup 2026 fixtures through the knockout bracket."""
+"""Monte Carlo simulation of the remaining WC2026 knockout bracket."""
 
+import pickle
+import numpy as np
 import pandas as pd
+from collections import defaultdict
 
-from src import config
+from src import config, data_loader
+from src.features import FEATURE_COLUMNS
+
+N_SIMULATIONS = 10_000
+
+WC_TEAMS = [
+    'Mexico','South Africa','South Korea','Czech Republic',
+    'Switzerland','Canada','Bosnia and Herzegovina','Qatar',
+    'Brazil','Morocco','Scotland','Haiti',
+    'United States','Australia','Paraguay','Turkey',
+    'Germany','Ivory Coast','Ecuador','Curaçao',
+    'Netherlands','Japan','Sweden','Tunisia',
+    'Egypt','Iran','Belgium','New Zealand',
+    'Spain','Uruguay','Cape Verde','Saudi Arabia',
+    'France','Norway','Senegal','Iraq',
+    'Argentina','Austria','Algeria','Jordan',
+    'Colombia','Portugal','DR Congo','Uzbekistan',
+    'England','Ghana','Croatia','Panama',
+]
+
+# Teams already eliminated in R32
+ELIMINATED_R32 = {
+    'South Africa', 'Germany', 'Netherlands', 'Japan',
+    'Qatar', 'Scotland', 'Haiti', 'Bosnia and Herzegovina',
+    'Tunisia', 'Czech Republic', 'Iraq', 'Saudi Arabia',
+    'Uruguay', 'Jordan', 'Uzbekistan', 'Panama',
+}
+
+# R32 results already decided (match_no -> winner)
+KNOWN_WINNERS = {73: 'Canada', 74: 'Paraguay', 75: 'Morocco', 76: 'Brazil'}
+
+# Full bracket wiring: (output_match_no, input_match_a, input_match_b)
+R16_BRACKET = [
+    (94, 73, 75),
+    (89, 79, 80),
+    (90, 81, 82),
+    (95, 74, 77),
+    (96, 76, 78),
+    (91, 83, 84),
+    (92, 85, 87),
+    (93, 86, 88),
+]
+QF_BRACKET = [
+    (97,  89, 90),
+    (98,  91, 92),
+    (99,  93, 94),
+    (100, 95, 96),
+]
+SF_BRACKET = [
+    (101, 97,  98),
+    (102, 99, 100),
+]
+FINAL_MATCH = (104, 101, 102)
+THIRD_PLACE  = (103, 101, 102)  # losers of SFs
 
 
-def predict_match_probabilities(model, home_team: str, away_team: str, neutral: bool) -> dict:
-    """Return {home_win, draw, away_win} probabilities for a single fixture."""
-    raise NotImplementedError
+def _load_model() -> object:
+    with open(config.MODELS_DIR / "xgboost.pkl", "rb") as f:
+        return pickle.load(f)
 
 
-def simulate_knockout_bracket(model, fixtures: pd.DataFrame, n_simulations: int = 10_000) -> pd.DataFrame:
-    """Monte Carlo simulate the bracket forward, resolving TBD slots round by round.
+def _compute_team_forms(competitive: pd.DataFrame, window: int = config.FORM_WINDOW_MATCHES) -> dict:
+    """Return {team: avg_points_per_game} over their last `window` competitive matches."""
+    rows = []
+    for _, r in competitive.iterrows():
+        hs, as_ = r['home_score'], r['away_score']
+        h_pts = 3 if hs > as_ else (1 if hs == as_ else 0)
+        a_pts = 3 if as_ > hs else (1 if hs == as_ else 0)
+        rows.append({'team': r['home_team'], 'date': r['date'], 'pts': h_pts})
+        rows.append({'team': r['away_team'],  'date': r['date'], 'pts': a_pts})
 
-    Returns a DataFrame of each team's probability of reaching each stage
-    (Round of 16, QF, SF, Final, Champion).
+    long = pd.DataFrame(rows).sort_values(['team', 'date'])
+    forms = {}
+    for team, grp in long.groupby('team'):
+        last = grp['pts'].values[-window:]
+        forms[team] = float(last.mean()) if len(last) > 0 else 1.5
+    return forms
+
+
+def _compute_h2h(competitive: pd.DataFrame, wc_teams: list, lookback_years: int = config.H2H_LOOKBACK_YEARS) -> dict:
+    """Return {(home_team, away_team): (win_rate, draw_rate, n)} for all WC team pairs.
+
+    Vectorised: filter the DataFrame once, tag every match with a canonical
+    pair key, then groupby that key to aggregate — rather than re-filtering
+    per pair which is O(n_pairs × n_rows).
     """
-    raise NotImplementedError
+    cutoff = pd.Timestamp.now() - pd.DateOffset(years=lookback_years)
+    wc_set = set(wc_teams)
+
+    rel = competitive[
+        (competitive['date'] >= cutoff) &
+        competitive['home_team'].isin(wc_set) &
+        competitive['away_team'].isin(wc_set)
+    ].copy()
+
+    if rel.empty:
+        return {(t1, t2): (np.nan, np.nan, 0) for t1 in wc_teams for t2 in wc_teams if t1 != t2}
+
+    # Canonical pair key so we can groupby unordered pairs in one pass
+    rel['t1'] = rel[['home_team', 'away_team']].min(axis=1)
+    rel['t2'] = rel[['home_team', 'away_team']].max(axis=1)
+
+    # From t1's perspective: did t1 win / draw?
+    rel['t1_is_home'] = rel['home_team'] == rel['t1']
+    rel['t1_win'] = np.where(
+        rel['t1_is_home'],
+        rel['home_score'] > rel['away_score'],
+        rel['away_score'] > rel['home_score'],
+    )
+    rel['draw'] = rel['home_score'] == rel['away_score']
+
+    agg = rel.groupby(['t1', 't2']).agg(
+        n=('draw', 'count'),
+        t1_wins=('t1_win', 'sum'),
+        draws=('draw', 'sum'),
+    ).reset_index()
+
+    # Build lookup for both orderings: (t1 vs t2) and (t2 vs t1)
+    h2h: dict = {}
+    for _, row in agg.iterrows():
+        t1, t2 = row['t1'], row['t2']
+        n = int(row['n'])
+        t1_win_rate = row['t1_wins'] / n
+        draw_rate   = row['draws']   / n
+        t2_win_rate = (n - row['t1_wins'] - row['draws']) / n
+        h2h[(t1, t2)] = (t1_win_rate, draw_rate, n)   # t1 as "home"
+        h2h[(t2, t1)] = (t2_win_rate, draw_rate, n)   # t2 as "home"
+
+    # Fill missing pairs with NaN so _make_features knows to use base rates
+    for t1 in wc_teams:
+        for t2 in wc_teams:
+            if t1 != t2 and (t1, t2) not in h2h:
+                h2h[(t1, t2)] = (np.nan, np.nan, 0)
+
+    return h2h
+
+
+def _make_features(
+    home: str, away: str,
+    forms: dict, h2h: dict, rank_lookup: dict,
+    base_h2h_win: float, base_draw: float,
+) -> pd.DataFrame:
+    """Build a single-row feature DataFrame for a matchup."""
+    wr, dr, n = h2h.get((home, away), (np.nan, np.nan, 0))
+    wr = base_h2h_win if np.isnan(wr) else wr
+    dr = base_draw    if np.isnan(dr) else dr
+
+    h_rank, h_pts = rank_lookup.get(home, (None, None))
+    a_rank, a_pts = rank_lookup.get(away, (None, None))
+
+    has_rank = int(h_rank is not None and a_rank is not None)
+    rank_gap   = (a_rank - h_rank)   if has_rank else 0.0
+    points_gap = (h_pts  - a_pts)    if has_rank else 0.0
+
+    return pd.DataFrame([{
+        'home_form':          forms.get(home, 1.5),
+        'away_form':          forms.get(away, 1.5),
+        'h2h_home_win_rate':  wr,
+        'h2h_draw_rate':      dr,
+        'h2h_matches_played': n,
+        'rank_gap':           rank_gap,
+        'points_gap':         points_gap,
+        'ranking_available':  has_rank,
+        'is_neutral':         True,
+    }])[FEATURE_COLUMNS]
+
+
+def _knockout_winner(
+    home: str, away: str, model,
+    forms, h2h, rank_lookup,
+    base_h2h_win, base_draw, rng,
+) -> str:
+    """Predict and sample the winner of a knockout match (no draws allowed).
+
+    The model gives P(home win), P(draw), P(away win). In knockout football
+    draws don't exist (extra time / penalties decide it), so we renormalise
+    to a 2-way contest: P(home win adjusted) = P(home win) / (P(home win) + P(away win)).
+    Mathematically this is just conditioning on the event that the match is decisive.
+    """
+    feat = _make_features(home, away, forms, h2h, rank_lookup, base_h2h_win, base_draw)
+    probs = model.predict_proba(feat)[0]  # [p_away, p_draw, p_home] (class order 0,1,2)
+    p_away, _, p_home = probs
+    total = p_home + p_away
+    p_home_adj = p_home / total if total > 0 else 0.5
+    return home if rng.random() < p_home_adj else away
+
+
+def simulate_once(
+    model, pending_r32: pd.DataFrame,
+    forms, h2h, rank_lookup,
+    base_h2h_win, base_draw, rng,
+) -> dict:
+    """Run one full simulation of the remaining bracket.
+
+    Returns a dict {match_no: winner_team} for every knockout match.
+    """
+    winners = dict(KNOWN_WINNERS)
+
+    # ── Remaining Round of 32 ────────────────────────────────────────────────
+    for _, match in pending_r32.iterrows():
+        w = _knockout_winner(
+            match['home_team'], match['away_team'],
+            model, forms, h2h, rank_lookup, base_h2h_win, base_draw, rng,
+        )
+        winners[int(match['match_no'])] = w
+
+    # ── Round of 16, QF, SF, Final ───────────────────────────────────────────
+    for (out_no, in_a, in_b) in R16_BRACKET + QF_BRACKET + SF_BRACKET + [FINAL_MATCH]:
+        home = winners[in_a]
+        away = winners[in_b]
+        winners[out_no] = _knockout_winner(
+            home, away, model, forms, h2h, rank_lookup, base_h2h_win, base_draw, rng,
+        )
+
+    return winners
+
+
+def run_simulation(n: int = N_SIMULATIONS, seed: int = config.RANDOM_STATE) -> pd.DataFrame:
+    """Run n Monte Carlo simulations and return a probability table per team.
+
+    For each team we compute:
+      - P(reach R16)   = probability of winning their R32 match
+      - P(reach QF)    = probability of winning their R16 match
+      - P(reach SF)    = probability of winning their QF match
+      - P(reach Final) = probability of winning their SF match
+      - P(Champion)    = probability of winning the Final
+    """
+    rng   = np.random.default_rng(seed)
+    model = _load_model()
+
+    # ── Load data ─────────────────────────────────────────────────────────────
+    df = data_loader.load_results()
+    played, _ = data_loader.split_played_and_pending(df)
+    competitive = data_loader.filter_competitive(played)
+
+    rankings = data_loader.load_rankings()
+    rank_lookup = {
+        row['team']: (row['rank'], row['points'])
+        for _, row in rankings.iterrows()
+    }
+
+    # ── Precompute features ───────────────────────────────────────────────────
+    forms = _compute_team_forms(competitive)
+    h2h   = _compute_h2h(competitive, WC_TEAMS)
+
+    # Global base rates used when no H2H history exists
+    wc_matches = competitive[competitive['tournament'] == 'FIFA World Cup']
+    if len(wc_matches) > 0:
+        base_h2h_win = (wc_matches['home_score'] > wc_matches['away_score']).mean()
+        base_draw    = (wc_matches['home_score'] == wc_matches['away_score']).mean()
+    else:
+        base_h2h_win, base_draw = 0.49, 0.23
+
+    # ── Pending R32 fixtures ──────────────────────────────────────────────────
+    fixtures = data_loader.load_fixtures()
+    pending_r32 = fixtures[
+        (fixtures['stage'] == 'R32') &
+        (fixtures['winner'].isna() | (fixtures['winner'] == ''))
+    ].copy()
+
+    print(f"Precomputation done. Running {n:,} simulations...")
+
+    # ── Counters ──────────────────────────────────────────────────────────────
+    # Map each match round to the stage name it grants access to
+    r32_to_team  = {m: (in_a, in_b) for m, in_a, in_b in R16_BRACKET}
+    stage_counts = defaultdict(lambda: defaultdict(int))
+
+    # Teams that already won R32 start with R16 count = n
+    for team in KNOWN_WINNERS.values():
+        stage_counts[team]['R16'] = n
+
+    for _ in range(n):
+        sim = simulate_once(
+            model, pending_r32, forms, h2h, rank_lookup,
+            base_h2h_win, base_draw, rng,
+        )
+        # Count who reached each stage based on who won each match
+        for r32_no in range(77, 89):  # pending R32 match numbers
+            if r32_no in sim:
+                stage_counts[sim[r32_no]]['R16'] += 1
+
+        for out_no, in_a, in_b in R16_BRACKET:
+            stage_counts[sim[out_no]]['QF'] += 1
+
+        for out_no, in_a, in_b in QF_BRACKET:
+            stage_counts[sim[out_no]]['SF'] += 1
+
+        for out_no, in_a, in_b in SF_BRACKET:
+            stage_counts[sim[out_no]]['Final'] += 1
+
+        stage_counts[sim[FINAL_MATCH[0]]]['Champion'] += 1
+
+    # ── Build results table ───────────────────────────────────────────────────
+    rows = []
+    for team in WC_TEAMS:
+        if team in ELIMINATED_R32:
+            rows.append({'team': team, 'P(R16)': 0, 'P(QF)': 0,
+                         'P(SF)': 0, 'P(Final)': 0, 'P(Champion)': 0})
+        else:
+            sc = stage_counts[team]
+            rows.append({
+                'team':         team,
+                'P(R16)':       round(sc['R16']      / n, 4),
+                'P(QF)':        round(sc['QF']       / n, 4),
+                'P(SF)':        round(sc['SF']       / n, 4),
+                'P(Final)':     round(sc['Final']    / n, 4),
+                'P(Champion)':  round(sc['Champion'] / n, 4),
+            })
+
+    results = pd.DataFrame(rows).sort_values('P(Champion)', ascending=False)
+    results = results.reset_index(drop=True)
+    results.index += 1
+    return results
 
 
 if __name__ == "__main__":
-    pass
+    results = run_simulation()
+    pd.set_option('display.float_format', '{:.1%}'.format)
+    pd.set_option('display.max_rows', 50)
+    print("\n=== WC 2026 — CHAMPIONSHIP PROBABILITIES ===\n")
+    print(results.to_string())
+    results.to_csv(config.PROCESSED_DIR / "wc2026_predictions.csv", index=True)
+    print("\nSaved to data/processed/wc2026_predictions.csv")

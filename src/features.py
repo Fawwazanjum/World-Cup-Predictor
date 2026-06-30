@@ -137,6 +137,52 @@ def add_venue_features(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def impute_and_finalise(df: pd.DataFrame) -> pd.DataFrame:
+    """Fill NaNs and return a model-ready DataFrame with the final feature columns.
+
+    Three NaN sources are handled:
+    - rank_gap / points_gap: missing when either team isn't in the 48-team
+      rankings snapshot. Filled with 0 (assume equal) plus a boolean flag so
+      the model can learn to trust ranking signal only when it is available.
+    - h2h_home_win_rate / h2h_draw_rate: missing when teams have never met.
+      Filled with the dataset's overall home-win / draw base rate as a prior.
+    - home_form / away_form: NaN only for a team's very first ever match in
+      the dataset (no prior games to average). Filled with 1.5, the midpoint
+      of the 0-3 points-per-game scale, representing an unknown/average team.
+    """
+    df = df.copy()
+
+    # ranking features
+    df["ranking_available"] = df["rank_gap"].notna().astype(int)
+    df["rank_gap"] = df["rank_gap"].fillna(0.0)
+    df["points_gap"] = df["points_gap"].fillna(0.0)
+
+    # head-to-head features — use dataset base rates as the prior for unknown matchups
+    overall_home_win_rate = (df["result"] == 2).mean()
+    overall_draw_rate = (df["result"] == 1).mean()
+    df["h2h_home_win_rate"] = df["h2h_home_win_rate"].fillna(overall_home_win_rate)
+    df["h2h_draw_rate"] = df["h2h_draw_rate"].fillna(overall_draw_rate)
+
+    # form — cold-start rows only, fill with neutral midpoint
+    df["home_form"] = df["home_form"].fillna(1.5)
+    df["away_form"] = df["away_form"].fillna(1.5)
+
+    return df
+
+
+FEATURE_COLUMNS = [
+    "home_form",
+    "away_form",
+    "h2h_home_win_rate",
+    "h2h_draw_rate",
+    "h2h_matches_played",
+    "rank_gap",
+    "points_gap",
+    "ranking_available",
+    "is_neutral",
+]
+
+
 def build_feature_set(matches: pd.DataFrame, rankings: pd.DataFrame) -> pd.DataFrame:
     """Run the full feature pipeline and return a model-ready DataFrame."""
     df = matches.sort_values("date").reset_index(drop=True)
@@ -145,4 +191,5 @@ def build_feature_set(matches: pd.DataFrame, rankings: pd.DataFrame) -> pd.DataF
     df = add_head_to_head(df)
     df = add_rankings(df, rankings)
     df = add_venue_features(df)
+    df = impute_and_finalise(df)
     return df

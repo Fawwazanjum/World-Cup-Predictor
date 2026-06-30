@@ -30,6 +30,20 @@ def split_played_and_pending(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
     return played, pending
 
 
+def filter_competitive(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop non-competitive matches and pre-modern-era rows for training.
+
+    Two filters applied:
+    - Friendlies removed: low-stakes, rotated squads, outcomes are noise.
+    - Pre-1990 matches removed: football before 1990 was structurally different
+      (no widespread professionalism, different fitness/tactics) and adds noise
+      rather than signal for predicting modern international football.
+    """
+    df = df[~df["tournament"].isin(config.EXCLUDED_TOURNAMENTS)]
+    df = df[df["date"] >= config.TRAINING_START_DATE]
+    return df.copy()
+
+
 def load_rankings() -> pd.DataFrame:
     """Load the current FIFA ranking snapshot (June 2026) for the 48 WC2026 teams.
 

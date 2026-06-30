@@ -9,12 +9,13 @@ dist/
 build/
 .eggs/
 
-# processed outputs and trained models (generated files, not source)
+# processed outputs (generated files, not source)
 data/processed/*
 !data/processed/.gitkeep
-models/*.pkl
-models/*.json
-models/*.ubj
+!data/processed/wc2026_predictions.csv
+
+# trained model artefacts — kept in repo so simulation can run without retraining
+# models/*.pkl  (intentionally not excluded)
 
 # jupyter
 .ipynb_checkpoints/
