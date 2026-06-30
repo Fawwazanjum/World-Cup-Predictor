@@ -129,6 +129,19 @@ def add_rankings(df: pd.DataFrame, rankings: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def add_elo(df: pd.DataFrame, elo_df: pd.DataFrame) -> pd.DataFrame:
+    """Join pre-match Elo ratings and their difference for each match.
+
+    elo_df is computed from ALL matches (including friendlies) so that ratings
+    stay current between competitive fixtures. The join key is (date, home_team,
+    away_team), which uniquely identifies every match.
+    """
+    df = df.copy()
+    elo_cols = elo_df[["date", "home_team", "away_team", "elo_home", "elo_away", "elo_diff"]]
+    df = df.merge(elo_cols, on=["date", "home_team", "away_team"], how="left")
+    return df
+
+
 def add_venue_features(df: pd.DataFrame) -> pd.DataFrame:
     """Add is_home_advantage / is_neutral flags derived from the neutral column."""
     df = df.copy()
@@ -151,6 +164,9 @@ def impute_and_finalise(df: pd.DataFrame) -> pd.DataFrame:
       of the 0-3 points-per-game scale, representing an unknown/average team.
     """
     df = df.copy()
+
+    # elo — should always be present for post-1990 matches, but guard anyway
+    df["elo_diff"] = df["elo_diff"].fillna(0.0)
 
     # ranking features
     df["ranking_available"] = df["rank_gap"].notna().astype(int)
@@ -176,6 +192,7 @@ FEATURE_COLUMNS = [
     "h2h_home_win_rate",
     "h2h_draw_rate",
     "h2h_matches_played",
+    "elo_diff",
     "rank_gap",
     "points_gap",
     "ranking_available",
@@ -183,13 +200,18 @@ FEATURE_COLUMNS = [
 ]
 
 
-def build_feature_set(matches: pd.DataFrame, rankings: pd.DataFrame) -> pd.DataFrame:
+def build_feature_set(
+    matches: pd.DataFrame,
+    rankings: pd.DataFrame,
+    elo_df: pd.DataFrame,
+) -> pd.DataFrame:
     """Run the full feature pipeline and return a model-ready DataFrame."""
     df = matches.sort_values("date").reset_index(drop=True)
     df = add_target(df)
     df = add_recent_form(df)
     df = add_head_to_head(df)
     df = add_rankings(df, rankings)
+    df = add_elo(df, elo_df)
     df = add_venue_features(df)
     df = impute_and_finalise(df)
     return df

@@ -15,7 +15,10 @@
       "PowerShell(Copy-Item \"C:\\\\Users\\\\44736\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-44736-Desktop-World-Cup-Predictor\\\\bbecd3da-216e-4b50-9929-cb313e00e751\\\\scratchpad\\\\verify_features.py\" \"verify_features.py\")",
       "PowerShell(.venv\\\\Scripts\\\\python.exe verify_features.py)",
       "PowerShell(.venv\\\\Scripts\\\\python.exe -m src.train)",
-      "PowerShell(.venv\\\\Scripts\\\\python.exe -m src.simulate)"
+      "PowerShell(.venv\\\\Scripts\\\\python.exe -m src.simulate)",
+      "WebSearch",
+      "WebFetch(domain:www.natesilver.net)",
+      "WebFetch(domain:sports.yahoo.com)"
     ]
   }
 }

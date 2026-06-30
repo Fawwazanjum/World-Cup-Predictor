@@ -110,11 +110,15 @@ if __name__ == "__main__":
     from src import data_loader, features
 
     print("Loading and building features...")
-    df = data_loader.load_results()
-    played, _ = data_loader.split_played_and_pending(df)
-    played     = data_loader.filter_competitive(played)
+    from src.elo import compute_elo
+    df         = data_loader.load_results()
+    played, _  = data_loader.split_played_and_pending(df)
+    competitive = data_loader.filter_competitive(played)
     rankings   = data_loader.load_rankings()
-    fs         = features.build_feature_set(played, rankings)
+    # Long window for training — 35 years of history so the model learns the
+    # relationship between Elo gap and match outcome across a full dataset.
+    elo_df, _  = compute_elo(played, start_date=config.TRAINING_START_DATE)
+    fs         = features.build_feature_set(competitive, rankings, elo_df)
 
     train_df, test_df = time_split(fs)
     X_train = train_df[FEATURE_COLUMNS]
@@ -137,9 +141,13 @@ if __name__ == "__main__":
     # Save both models (and the LR scaler, needed at inference time)
     save_model({"model": lr, "scaler": scaler}, "logistic_regression.pkl")
     save_model(xgb, "xgboost.pkl")
-    print("\nModels saved to models/")
 
-    # Report which model had better log-loss (the metric that matters most for
-    # a probability-based simulation — we care about calibration, not just accuracy)
+    # Save the winner as best_model.pkl so simulate.py is model-agnostic
     best = min([lr_metrics, xgb_metrics], key=lambda m: m["log_loss"])
-    print(f"\nBest model by log-loss: {best['name']}  (log-loss {best['log_loss']:.4f})")
+    if best["name"] == "Logistic Regression":
+        save_model({"model": lr, "scaler": scaler, "type": "lr"}, "best_model.pkl")
+    else:
+        save_model({"model": xgb, "scaler": None, "type": "xgb"}, "best_model.pkl")
+
+    print(f"\nModels saved to models/")
+    print(f"Best model by log-loss: {best['name']}  (log-loss {best['log_loss']:.4f})")

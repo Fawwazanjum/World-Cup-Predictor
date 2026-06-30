@@ -26,3 +26,8 @@ EXCLUDED_TOURNAMENTS = {"Friendly"}
 # different fitness/tactics — so older data adds noise rather than signal
 # for predicting modern international football.
 TRAINING_START_DATE = "1990-01-01"
+
+# Elo ratings are computed from this date onwards only.
+# Using a shorter window (2020+) means ratings reflect current squad quality
+# rather than being inflated by historical dominance from past generations.
+ELO_START_DATE = "2020-01-01"

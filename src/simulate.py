@@ -61,9 +61,9 @@ FINAL_MATCH = (104, 101, 102)
 THIRD_PLACE  = (103, 101, 102)  # losers of SFs
 
 
-def _load_model() -> object:
-    with open(config.MODELS_DIR / "xgboost.pkl", "rb") as f:
-        return pickle.load(f)
+def _load_model():
+    with open(config.MODELS_DIR / "best_model.pkl", "rb") as f:
+        return pickle.load(f)  # dict with keys: model, scaler (None for XGB), type
 
 
 def _compute_team_forms(competitive: pd.DataFrame, window: int = config.FORM_WINDOW_MATCHES) -> dict:
@@ -144,7 +144,7 @@ def _compute_h2h(competitive: pd.DataFrame, wc_teams: list, lookback_years: int 
 
 def _make_features(
     home: str, away: str,
-    forms: dict, h2h: dict, rank_lookup: dict,
+    forms: dict, h2h: dict, rank_lookup: dict, elo_ratings: dict,
     base_h2h_win: float, base_draw: float,
 ) -> pd.DataFrame:
     """Build a single-row feature DataFrame for a matchup."""
@@ -156,8 +156,12 @@ def _make_features(
     a_rank, a_pts = rank_lookup.get(away, (None, None))
 
     has_rank = int(h_rank is not None and a_rank is not None)
-    rank_gap   = (a_rank - h_rank)   if has_rank else 0.0
-    points_gap = (h_pts  - a_pts)    if has_rank else 0.0
+    rank_gap   = (a_rank - h_rank) if has_rank else 0.0
+    points_gap = (h_pts  - a_pts)  if has_rank else 0.0
+
+    from src.elo import DEFAULT_ELO
+    elo_h = elo_ratings.get(home, DEFAULT_ELO)
+    elo_a = elo_ratings.get(away, DEFAULT_ELO)
 
     return pd.DataFrame([{
         'home_form':          forms.get(home, 1.5),
@@ -165,6 +169,7 @@ def _make_features(
         'h2h_home_win_rate':  wr,
         'h2h_draw_rate':      dr,
         'h2h_matches_played': n,
+        'elo_diff':           elo_h - elo_a,
         'rank_gap':           rank_gap,
         'points_gap':         points_gap,
         'ranking_available':  has_rank,
@@ -173,8 +178,8 @@ def _make_features(
 
 
 def _knockout_winner(
-    home: str, away: str, model,
-    forms, h2h, rank_lookup,
+    home: str, away: str, model, scaler,
+    forms, h2h, rank_lookup, elo_ratings,
     base_h2h_win, base_draw, rng,
 ) -> str:
     """Predict and sample the winner of a knockout match (no draws allowed).
@@ -184,8 +189,9 @@ def _knockout_winner(
     to a 2-way contest: P(home win adjusted) = P(home win) / (P(home win) + P(away win)).
     Mathematically this is just conditioning on the event that the match is decisive.
     """
-    feat = _make_features(home, away, forms, h2h, rank_lookup, base_h2h_win, base_draw)
-    probs = model.predict_proba(feat)[0]  # [p_away, p_draw, p_home] (class order 0,1,2)
+    feat = _make_features(home, away, forms, h2h, rank_lookup, elo_ratings, base_h2h_win, base_draw)
+    X = scaler.transform(feat) if scaler is not None else feat
+    probs = model.predict_proba(X)[0]  # [p_away, p_draw, p_home] (class order 0,1,2)
     p_away, _, p_home = probs
     total = p_home + p_away
     p_home_adj = p_home / total if total > 0 else 0.5
@@ -193,8 +199,8 @@ def _knockout_winner(
 
 
 def simulate_once(
-    model, pending_r32: pd.DataFrame,
-    forms, h2h, rank_lookup,
+    model, scaler, pending_r32: pd.DataFrame,
+    forms, h2h, rank_lookup, elo_ratings,
     base_h2h_win, base_draw, rng,
 ) -> dict:
     """Run one full simulation of the remaining bracket.
@@ -207,7 +213,7 @@ def simulate_once(
     for _, match in pending_r32.iterrows():
         w = _knockout_winner(
             match['home_team'], match['away_team'],
-            model, forms, h2h, rank_lookup, base_h2h_win, base_draw, rng,
+            model, scaler, forms, h2h, rank_lookup, elo_ratings, base_h2h_win, base_draw, rng,
         )
         winners[int(match['match_no'])] = w
 
@@ -216,7 +222,7 @@ def simulate_once(
         home = winners[in_a]
         away = winners[in_b]
         winners[out_no] = _knockout_winner(
-            home, away, model, forms, h2h, rank_lookup, base_h2h_win, base_draw, rng,
+            home, away, model, scaler, forms, h2h, rank_lookup, elo_ratings, base_h2h_win, base_draw, rng,
         )
 
     return winners
@@ -232,10 +238,13 @@ def run_simulation(n: int = N_SIMULATIONS, seed: int = config.RANDOM_STATE) -> p
       - P(reach Final) = probability of winning their SF match
       - P(Champion)    = probability of winning the Final
     """
-    rng   = np.random.default_rng(seed)
-    model = _load_model()
+    rng        = np.random.default_rng(seed)
+    model_pkg  = _load_model()
+    model      = model_pkg["model"]
+    scaler     = model_pkg["scaler"]   # None for XGBoost, StandardScaler for LR
 
     # ── Load data ─────────────────────────────────────────────────────────────
+    from src.elo import compute_elo
     df = data_loader.load_results()
     played, _ = data_loader.split_played_and_pending(df)
     competitive = data_loader.filter_competitive(played)
@@ -245,6 +254,11 @@ def run_simulation(n: int = N_SIMULATIONS, seed: int = config.RANDOM_STATE) -> p
         row['team']: (row['rank'], row['points'])
         for _, row in rankings.iterrows()
     }
+
+    # Short window for current ratings — only 2020+ results so ratings reflect
+    # today's squad quality rather than historical dominance from past generations.
+    print("Computing Elo ratings...")
+    _, elo_ratings = compute_elo(played, start_date=config.ELO_START_DATE)
 
     # ── Precompute features ───────────────────────────────────────────────────
     forms = _compute_team_forms(competitive)
@@ -278,7 +292,7 @@ def run_simulation(n: int = N_SIMULATIONS, seed: int = config.RANDOM_STATE) -> p
 
     for _ in range(n):
         sim = simulate_once(
-            model, pending_r32, forms, h2h, rank_lookup,
+            model, scaler, pending_r32, forms, h2h, rank_lookup, elo_ratings,
             base_h2h_win, base_draw, rng,
         )
         # Count who reached each stage based on who won each match
