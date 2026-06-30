@@ -1,0 +1,33 @@
+match_no,stage,date,home_team,away_team,home_score,away_score,pens_home,pens_away,winner,venue,neutral
+73,R32,2026-06-28,South Africa,Canada,0,1,,,Canada,"Inglewood, USA",True
+74,R32,2026-06-29,Germany,Paraguay,1,1,3,4,Paraguay,"Foxborough, USA",True
+76,R32,2026-06-29,Brazil,Japan,2,1,,,Brazil,"Houston, USA",True
+75,R32,2026-06-30,Netherlands,Morocco,1,1,2,3,Morocco,"Guadalupe, Mexico",True
+77,R32,2026-06-30,France,Sweden,,,,,,"Foxborough, USA",True
+78,R32,2026-06-30,Ivory Coast,Norway,,,,,,"Arlington, USA",True
+79,R32,2026-07-01,Mexico,Ecuador,,,,,,"Mexico City, Mexico",True
+80,R32,2026-07-01,England,DR Congo,,,,,,"East Rutherford, USA",True
+82,R32,2026-07-01,Belgium,Senegal,,,,,,"Seattle, USA",True
+81,R32,2026-07-02,United States,Bosnia and Herzegovina,,,,,,"Santa Clara, USA",True
+84,R32,2026-07-02,Spain,Austria,,,,,,"Inglewood, USA",True
+83,R32,2026-07-03,Portugal,Croatia,,,,,,"Toronto, Canada",True
+85,R32,2026-07-03,Switzerland,Algeria,,,,,,"Vancouver, Canada",True
+86,R32,2026-07-03,Argentina,Cape Verde,,,,,,"Miami Gardens, USA",True
+88,R32,2026-07-03,Australia,Egypt,,,,,,"Kansas City, USA",True
+87,R32,2026-07-04,Colombia,Ghana,,,,,,"Arlington, USA",True
+94,R16,2026-07-04,Winner M73,Winner M75,,,,,,"Houston, USA",True
+89,R16,2026-07-05,Winner M79,Winner M80,,,,,,TBD,True
+90,R16,2026-07-05,Winner M81,Winner M82,,,,,,TBD,True
+95,R16,2026-07-06,Winner M74,Winner M77,,,,,,TBD,True
+96,R16,2026-07-06,Winner M76,Winner M78,,,,,,TBD,True
+91,R16,2026-07-07,Winner M83,Winner M84,,,,,,TBD,True
+92,R16,2026-07-07,Winner M85,Winner M87,,,,,,TBD,True
+93,R16,2026-07-08,Winner M86,Winner M88,,,,,,TBD,True
+97,QF,2026-07-11,Winner M89,Winner M90,,,,,,TBD,True
+98,QF,2026-07-12,Winner M91,Winner M92,,,,,,TBD,True
+99,QF,2026-07-12,Winner M93,Winner M94,,,,,,TBD,True
+100,QF,2026-07-13,Winner M95,Winner M96,,,,,,TBD,True
+101,SF,2026-07-15,Winner M97,Winner M98,,,,,,TBD,True
+102,SF,2026-07-16,Winner M99,Winner M100,,,,,,TBD,True
+103,3P,2026-07-18,Loser M101,Loser M102,,,,,,TBD,True
+104,Final,2026-07-19,Winner M101,Winner M102,,,,,,"MetLife Stadium, East Rutherford, USA",True
