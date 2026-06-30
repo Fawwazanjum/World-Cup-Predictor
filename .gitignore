@@ -1,0 +1,20 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# processed outputs and trained models (generated files, not source)
+data/processed/*
+!data/processed/.gitkeep
+models/*.pkl
+models/*.json
+models/*.ubj
+
+# jupyter
+.ipynb_checkpoints/

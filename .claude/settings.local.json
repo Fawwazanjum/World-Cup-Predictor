@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(py --version 2>$null)",
+      "PowerShell(python3 --version 2>$null)",
+      "PowerShell(python --version)",
+      "PowerShell(python -m venv .venv)",
+      "PowerShell(.venv\\\\Scripts\\\\python.exe -m pip install --upgrade pip)",
+      "PowerShell(.venv\\\\Scripts\\\\python.exe -m pip install -r requirements.txt)"
+    ]
+  }
+}
