@@ -1,14 +1,14 @@
 match_no,stage,date,home_team,away_team,home_score,away_score,pens_home,pens_away,winner,venue,neutral
-73,R32,2026-06-28,South Africa,Canada,0,1,,,Canada,"Inglewood, USA",True
-74,R32,2026-06-29,Germany,Paraguay,1,1,3,4,Paraguay,"Foxborough, USA",True
-76,R32,2026-06-29,Brazil,Japan,2,1,,,Brazil,"Houston, USA",True
-75,R32,2026-06-30,Netherlands,Morocco,1,1,2,3,Morocco,"Guadalupe, Mexico",True
-77,R32,2026-06-30,France,Sweden,,,,,,"Foxborough, USA",True
-78,R32,2026-06-30,Ivory Coast,Norway,,,,,,"Arlington, USA",True
-79,R32,2026-07-01,Mexico,Ecuador,,,,,,"Mexico City, Mexico",True
-80,R32,2026-07-01,England,DR Congo,,,,,,"East Rutherford, USA",True
-82,R32,2026-07-01,Belgium,Senegal,,,,,,"Seattle, USA",True
-81,R32,2026-07-02,United States,Bosnia and Herzegovina,,,,,,"Santa Clara, USA",True
+73,R32,2026-06-28,South Africa,Canada,0.0,1.0,,,Canada,"Inglewood, USA",True
+74,R32,2026-06-29,Germany,Paraguay,1.0,1.0,3.0,4.0,Paraguay,"Foxborough, USA",True
+76,R32,2026-06-29,Brazil,Japan,2.0,1.0,,,Brazil,"Houston, USA",True
+75,R32,2026-06-30,Netherlands,Morocco,1.0,1.0,2.0,3.0,Morocco,"Guadalupe, Mexico",True
+77,R32,2026-06-30,France,Sweden,3.0,0.0,,,France,"Foxborough, USA",True
+78,R32,2026-06-30,Ivory Coast,Norway,1.0,2.0,,,Norway,"Arlington, USA",True
+79,R32,2026-07-01,Mexico,Ecuador,2.0,0.0,,,Mexico,"Mexico City, Mexico",True
+80,R32,2026-07-01,England,DR Congo,2.0,1.0,,,England,"East Rutherford, USA",True
+82,R32,2026-07-01,Belgium,Senegal,3.0,2.0,,,Belgium,"Seattle, USA",True
+81,R32,2026-07-02,United States,Bosnia and Herzegovina,2.0,0.0,,,United States,"Santa Clara, USA",True
 84,R32,2026-07-02,Spain,Austria,,,,,,"Inglewood, USA",True
 83,R32,2026-07-03,Portugal,Croatia,,,,,,"Toronto, Canada",True
 85,R32,2026-07-03,Switzerland,Algeria,,,,,,"Vancouver, Canada",True

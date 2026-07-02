@@ -18,7 +18,9 @@
       "PowerShell(.venv\\\\Scripts\\\\python.exe -m src.simulate)",
       "WebSearch",
       "WebFetch(domain:www.natesilver.net)",
-      "WebFetch(domain:sports.yahoo.com)"
+      "WebFetch(domain:sports.yahoo.com)",
+      "PowerShell(Copy-Item \"C:\\\\Users\\\\44736\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-44736-Desktop-World-Cup-Predictor\\\\bbecd3da-216e-4b50-9929-cb313e00e751\\\\scratchpad\\\\update_results.py\" \"update_results.py\")",
+      "PowerShell(.venv\\\\Scripts\\\\python.exe update_results.py)"
     ]
   }
 }

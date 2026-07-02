@@ -25,16 +25,42 @@ WC_TEAMS = [
     'England','Ghana','Croatia','Panama',
 ]
 
-# Teams already eliminated in R32
-ELIMINATED_R32 = {
-    'South Africa', 'Germany', 'Netherlands', 'Japan',
-    'Qatar', 'Scotland', 'Haiti', 'Bosnia and Herzegovina',
-    'Tunisia', 'Czech Republic', 'Iraq', 'Saudi Arabia',
-    'Uruguay', 'Jordan', 'Uzbekistan', 'Panama',
-}
+def _load_bracket_state() -> tuple[dict, set, pd.DataFrame]:
+    """Read wc2026_fixtures.csv and return current bracket state.
 
-# R32 results already decided (match_no -> winner)
-KNOWN_WINNERS = {73: 'Canada', 74: 'Paraguay', 75: 'Morocco', 76: 'Brazil'}
+    Returns
+    -------
+    known_winners : {match_no: winner_team} for every completed match
+    eliminated    : set of teams knocked out at any stage so far
+    pending_r32   : DataFrame of R32 fixtures not yet played
+    """
+    fx = data_loader.load_fixtures()
+
+    known_winners = {}
+    for _, row in fx.iterrows():
+        if pd.notna(row['winner']) and str(row['winner']).strip():
+            known_winners[int(row['match_no'])] = row['winner']
+
+    # Find all teams that appeared in a completed match but did not win it
+    eliminated = set()
+    r32 = fx[fx['stage'] == 'R32']
+    for _, row in r32.iterrows():
+        if pd.notna(row['winner']) and str(row['winner']).strip():
+            loser = row['away_team'] if row['winner'] == row['home_team'] else row['home_team']
+            eliminated.add(loser)
+
+    # Group stage eliminations — every team not in any fixture (already out)
+    fixture_teams = set(fx['home_team']).union(set(fx['away_team']))
+    for team in WC_TEAMS:
+        if team not in fixture_teams:
+            eliminated.add(team)
+
+    pending_r32 = fx[
+        (fx['stage'] == 'R32') &
+        (fx['winner'].isna() | (fx['winner'].astype(str).str.strip() == ''))
+    ].copy()
+
+    return known_winners, eliminated, pending_r32
 
 # Full bracket wiring: (output_match_no, input_match_a, input_match_b)
 R16_BRACKET = [
@@ -202,12 +228,13 @@ def simulate_once(
     model, scaler, pending_r32: pd.DataFrame,
     forms, h2h, rank_lookup, elo_ratings,
     base_h2h_win, base_draw, rng,
+    known_winners: dict = None,
 ) -> dict:
     """Run one full simulation of the remaining bracket.
 
     Returns a dict {match_no: winner_team} for every knockout match.
     """
-    winners = dict(KNOWN_WINNERS)
+    winners = dict(known_winners or {})
 
     # ── Remaining Round of 32 ────────────────────────────────────────────────
     for _, match in pending_r32.iterrows():
@@ -241,7 +268,10 @@ def run_simulation(n: int = N_SIMULATIONS, seed: int = config.RANDOM_STATE) -> p
     rng        = np.random.default_rng(seed)
     model_pkg  = _load_model()
     model      = model_pkg["model"]
-    scaler     = model_pkg["scaler"]   # None for XGBoost, StandardScaler for LR
+    scaler     = model_pkg["scaler"]
+
+    known_winners, eliminated, pending_r32 = _load_bracket_state()
+    print(f"R32 complete: {16 - len(pending_r32)}/16  |  Pending: {len(pending_r32)}")
 
     # ── Load data ─────────────────────────────────────────────────────────────
     from src.elo import compute_elo
@@ -272,31 +302,30 @@ def run_simulation(n: int = N_SIMULATIONS, seed: int = config.RANDOM_STATE) -> p
     else:
         base_h2h_win, base_draw = 0.49, 0.23
 
-    # ── Pending R32 fixtures ──────────────────────────────────────────────────
-    fixtures = data_loader.load_fixtures()
-    pending_r32 = fixtures[
-        (fixtures['stage'] == 'R32') &
-        (fixtures['winner'].isna() | (fixtures['winner'] == ''))
-    ].copy()
-
     print(f"Precomputation done. Running {n:,} simulations...")
 
     # ── Counters ──────────────────────────────────────────────────────────────
-    # Map each match round to the stage name it grants access to
-    r32_to_team  = {m: (in_a, in_b) for m, in_a, in_b in R16_BRACKET}
     stage_counts = defaultdict(lambda: defaultdict(int))
 
-    # Teams that already won R32 start with R16 count = n
-    for team in KNOWN_WINNERS.values():
-        stage_counts[team]['R16'] = n
+    # Teams that already won R32 are guaranteed to reach R16
+    r32_winners_so_far = {v for k, v in known_winners.items()
+                          if k in {m[0] for bracket in [R16_BRACKET] for m in bracket
+                                   for _ in [None]} or
+                          k <= 88}
+    # Simpler: any team that is a winner in an R32 match
+    for match_no, winner in known_winners.items():
+        if match_no <= 88:   # R32 match numbers are 73-88
+            stage_counts[winner]['R16'] = n
+
+    pending_r32_nos = set(pending_r32['match_no'].astype(int))
 
     for _ in range(n):
         sim = simulate_once(
             model, scaler, pending_r32, forms, h2h, rank_lookup, elo_ratings,
-            base_h2h_win, base_draw, rng,
+            base_h2h_win, base_draw, rng, known_winners,
         )
-        # Count who reached each stage based on who won each match
-        for r32_no in range(77, 89):  # pending R32 match numbers
+        # Count R16 entries only for teams that won a *pending* R32 match
+        for r32_no in pending_r32_nos:
             if r32_no in sim:
                 stage_counts[sim[r32_no]]['R16'] += 1
 
@@ -314,7 +343,7 @@ def run_simulation(n: int = N_SIMULATIONS, seed: int = config.RANDOM_STATE) -> p
     # ── Build results table ───────────────────────────────────────────────────
     rows = []
     for team in WC_TEAMS:
-        if team in ELIMINATED_R32:
+        if team in eliminated:
             rows.append({'team': team, 'P(R16)': 0, 'P(QF)': 0,
                          'P(SF)': 0, 'P(Final)': 0, 'P(Champion)': 0})
         else:
